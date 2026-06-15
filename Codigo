@@ -1,0 +1,634 @@
+function GUI_FiltrosFrecuencia
+    % =========================================================================
+    % PROCESAMIENTO DE IMÁGENES EN EL DOMINIO DE LA FRECUENCIA
+    % Sistemas Lineales y Señales - Universidad de Cuenca
+    % Equipo: Sebastian Avila, Sebastian Gonzalez, Jean Bonete
+    % =========================================================================
+    clc; close all;
+
+    % ---- VENTANA DE PRESENTACIÓN ----
+    figIntro = figure('Name','Proyecto: Procesamiento de Señales',...
+        'NumberTitle','off','MenuBar','none','ToolBar','none',...
+        'Position',[500 250 500 380],'Color',[1 1 1],'Resize','off');
+
+    uicontrol(figIntro,'Style','text','String','SISTEMAS Y SEÑALES',...
+        'FontSize',18,'FontWeight','bold','ForegroundColor',[0.1 0.3 0.6],...
+        'Position',[50 305 400 45],'BackgroundColor',[1 1 1]);
+
+    uicontrol(figIntro,'Style','text',...
+        'String','Filtrado de Imágenes en el Dominio de la Frecuencia',...
+        'FontSize',10,'Position',[50 270 400 30],'BackgroundColor',[1 1 1]);
+
+    uicontrol(figIntro,'Style','text','Position',[80 262 340 2],...
+        'BackgroundColor',[0.7 0.7 0.7]);
+
+    uicontrol(figIntro,'Style','text','String','Equipo de Trabajo:',...
+        'FontSize',11,'FontWeight','bold','Position',[50 220 400 25],...
+        'BackgroundColor',[1 1 1],'HorizontalAlignment','center');
+
+    integrantes = {'Sebastian Avila  |  Sebastian Gonzalez  |  Jean Bonete'};
+    uicontrol(figIntro,'Style','text','String',integrantes,...
+        'FontSize',10,'Position',[50 185 400 30],'BackgroundColor',[1 1 1],...
+        'HorizontalAlignment','center');
+
+    uicontrol(figIntro,'Style','text',...
+        'String',['Método: Convolución en frecuencia mediante FFT2D' newline ...
+                  'Filtros: Pasa-Bajos | Pasa-Altos | Pasa-Banda | Realce'],...
+        'FontSize',9,'Position',[50 120 400 55],'BackgroundColor',[0.96 0.96 0.96],...
+        'HorizontalAlignment','center');
+
+    uicontrol(figIntro,'Style','pushbutton','String','ENTRAR A LA APLICACIÓN',...
+        'FontSize',10,'FontWeight','bold','ForegroundColor',[1 1 1],...
+        'BackgroundColor',[0.1 0.45 0.2],'Position',[150 45 200 50],...
+        'Callback',@(~,~) startApp(figIntro));
+end
+
+% =========================================================================
+% APLICACIÓN PRINCIPAL
+% =========================================================================
+function startApp(figIntro)
+    if ishandle(figIntro), delete(figIntro); end
+
+    fig = figure('Name','Filtrado en Dominio de Frecuencia - Señales y Sistemas',...
+        'NumberTitle','off','MenuBar','none','ToolBar','none',...
+        'Position',[80 60 1300 720],'Color',[0.97 0.97 0.97],'Resize','off');
+
+    % Estado global de la app
+    data.img       = [];
+    data.imgGray   = [];
+    data.result    = [];
+    data.Fs_x      = 1;  % frecuencia de muestreo espacial (1/pixel)
+
+    % ---- CABECERA ----
+    uipanel(fig,'Position',[0 0.93 1 0.07],'BackgroundColor',[0.1 0.25 0.55],'BorderType','none');
+    uicontrol(fig,'Style','text',...
+        'String','PROCESAMIENTO DE IMÁGENES EN EL DOMINIO DE LA FRECUENCIA  |  FFT 2D',...
+        'FontSize',12,'FontWeight','bold','Units','normalized',...
+        'Position',[0.05 0.935 0.9 0.05],'BackgroundColor',[0.1 0.25 0.55],...
+        'ForegroundColor',[1 1 1]);
+
+    % ---- PANEL DE CONTROL ----
+    pCtrl = uipanel(fig,'Title','  CONTROLES  ','FontSize',10,'FontWeight','bold',...
+        'Position',[0.01 0.01 0.18 0.91],'BackgroundColor',[1 1 1]);
+
+    % -- Cargar imagen --
+    uicontrol(pCtrl,'Style','pushbutton','String','1.  Cargar Imagen',...
+        'Units','normalized','Position',[0.07 0.91 0.86 0.055],...
+        'FontSize',10,'BackgroundColor',[0.88 0.88 0.88],'Callback',@loadImage);
+
+    % -- Tipo de filtro --
+    uicontrol(pCtrl,'Style','text','String','Tipo de Filtro H(jω):',...
+        'Units','normalized','Position',[0.07 0.84 0.86 0.038],...
+        'BackgroundColor',[1 1 1],'FontWeight','bold','HorizontalAlignment','left');
+
+    opcionesFiltro = {
+        '1. Pasa-Bajos  (Suavizado)',...
+        '2. Pasa-Altos  (Realce de bordes)',...
+        '3. Pasa-Banda',...
+        '4. Rechaza-Banda (Notch)',...
+        '5. Realce (Unsharp Mask)'};
+
+    data.popupFiltro = uicontrol(pCtrl,'Style','popupmenu','String',opcionesFiltro,...
+        'Units','normalized','Position',[0.07 0.795 0.86 0.045],...
+        'BackgroundColor',[1 1 1],'Callback',@actualizarPanelFiltro);
+
+    % -- Forma del filtro --
+    uicontrol(pCtrl,'Style','text','String','Forma del Kernel H:',...
+        'Units','normalized','Position',[0.07 0.750 0.86 0.035],...
+        'BackgroundColor',[1 1 1],'FontWeight','bold','HorizontalAlignment','left');
+
+    data.popupForma = uicontrol(pCtrl,'Style','popupmenu',...
+        'String',{'Ideal (rectangular)','Gaussiano','Butterworth'},...
+        'Units','normalized','Position',[0.07 0.710 0.86 0.040],...
+        'BackgroundColor',[1 1 1]);
+
+    % -- Frecuencia de corte 1 --
+    uicontrol(pCtrl,'Style','text','String','Frec. de Corte fc1 (ciclos/px):',...
+        'Units','normalized','Position',[0.07 0.670 0.86 0.035],...
+        'BackgroundColor',[1 1 1],'HorizontalAlignment','left');
+
+    data.sliderFc1 = uicontrol(pCtrl,'Style','slider','Min',0.01,'Max',0.5,'Value',0.1,...
+        'Units','normalized','Position',[0.07 0.635 0.86 0.030],'BackgroundColor',[1 1 1],...
+        'Callback',@(s,~) actualizarLabel(s, data.lblFc1, 'fc1'));
+
+    data.lblFc1 = uicontrol(pCtrl,'Style','text','String','fc1 = 0.10',...
+        'Units','normalized','Position',[0.20 0.600 0.60 0.030],...
+        'BackgroundColor',[1 1 1],'FontSize',9);
+
+    % -- Frecuencia de corte 2 (para pasa-banda / rechaza-banda) --
+    uicontrol(pCtrl,'Style','text','String','Frec. de Corte fc2 (solo banda):',...
+        'Units','normalized','Position',[0.07 0.570 0.86 0.035],...
+        'BackgroundColor',[1 1 1],'HorizontalAlignment','left');
+
+    data.sliderFc2 = uicontrol(pCtrl,'Style','slider','Min',0.01,'Max',0.5,'Value',0.25,...
+        'Units','normalized','Position',[0.07 0.535 0.86 0.030],'BackgroundColor',[1 1 1],...
+        'Callback',@(s,~) actualizarLabel(s, data.lblFc2, 'fc2'));
+
+    data.lblFc2 = uicontrol(pCtrl,'Style','text','String','fc2 = 0.25',...
+        'Units','normalized','Position',[0.20 0.500 0.60 0.030],...
+        'BackgroundColor',[1 1 1],'FontSize',9);
+
+    % -- Orden Butterworth --
+    uicontrol(pCtrl,'Style','text','String','Orden Butterworth (n):',...
+        'Units','normalized','Position',[0.07 0.467 0.86 0.030],...
+        'BackgroundColor',[1 1 1],'HorizontalAlignment','left');
+
+    data.sliderOrden = uicontrol(pCtrl,'Style','slider','Min',1,'Max',10,'Value',2,...
+        'Units','normalized','Position',[0.07 0.432 0.86 0.030],'BackgroundColor',[1 1 1],...
+        'Callback',@(s,~) actualizarLabel(s, data.lblOrden, 'ord'));
+
+    data.lblOrden = uicontrol(pCtrl,'Style','text','String','n = 2',...
+        'Units','normalized','Position',[0.25 0.397 0.50 0.030],...
+        'BackgroundColor',[1 1 1],'FontSize',9);
+
+    % -- Botón procesar --
+    uicontrol(pCtrl,'Style','pushbutton','String','2.  Procesar en Frecuencia',...
+        'Units','normalized','Position',[0.07 0.305 0.86 0.075],...
+        'FontSize',10,'FontWeight','bold','ForegroundColor',[1 1 1],...
+        'BackgroundColor',[0.1 0.35 0.65],'Callback',@procesarEnFrecuencia);
+
+    % -- Botón análisis completo --
+    uicontrol(pCtrl,'Style','pushbutton','String','3.  Ver Análisis de Fourier',...
+        'Units','normalized','Position',[0.07 0.218 0.86 0.070],...
+        'FontSize',10,'FontWeight','bold','ForegroundColor',[1 1 1],...
+        'BackgroundColor',[0.55 0.15 0.05],'Callback',@verAnalisisFourier);
+
+    % -- Botón respuesta al impulso / frecuencia --
+    uicontrol(pCtrl,'Style','pushbutton','String','4.  h(t) y H(jω) del Sistema',...
+        'Units','normalized','Position',[0.07 0.135 0.86 0.070],...
+        'FontSize',9,'FontWeight','bold','ForegroundColor',[1 1 1],...
+        'BackgroundColor',[0.35 0.15 0.55],'Callback',@verRespuestaSistema);
+
+    % -- Guardar --
+    uicontrol(pCtrl,'Style','pushbutton','String','5.  Guardar Imagen de Salida',...
+        'Units','normalized','Position',[0.07 0.055 0.86 0.065],...
+        'FontSize',9,'BackgroundColor',[0.78 0.92 0.78],'Callback',@guardarImagen);
+
+    % ---- ÁREAS DE VISUALIZACIÓN (3 paneles) ----
+    % Imagen original
+    pA = uipanel(fig,'Title',' x(t)  —  Señal de Entrada','FontSize',9,'FontWeight','bold',...
+        'Position',[0.20 0.48 0.26 0.44],'BackgroundColor',[1 1 1]);
+    data.axOrig = axes('Parent',pA,'Position',[0.03 0.03 0.94 0.88]);
+    axis off;
+
+    % Espectro de entrada
+    pB = uipanel(fig,'Title',' |X(jω)|  —  Espectro de Entrada','FontSize',9,'FontWeight','bold',...
+        'Position',[0.47 0.48 0.26 0.44],'BackgroundColor',[1 1 1]);
+    data.axEspX = axes('Parent',pB,'Position',[0.07 0.08 0.88 0.84]);
+    axis off;
+
+    % Filtro H en frecuencia
+    pC = uipanel(fig,'Title',' H(jω)  —  Respuesta en Frecuencia del Sistema','FontSize',9,'FontWeight','bold',...
+        'Position',[0.74 0.48 0.25 0.44],'BackgroundColor',[1 1 1]);
+    data.axH = axes('Parent',pC,'Position',[0.07 0.08 0.88 0.84]);
+    axis off;
+
+    % Imagen resultado
+    pD = uipanel(fig,'Title',' y(t)  —  Señal de Salida','FontSize',9,'FontWeight','bold',...
+        'Position',[0.20 0.01 0.26 0.44],'BackgroundColor',[1 1 1]);
+    data.axResult = axes('Parent',pD,'Position',[0.03 0.03 0.94 0.88]);
+    axis off;
+
+    % Espectro de salida
+    pE = uipanel(fig,'Title',' |Y(jω)|  —  Espectro de Salida','FontSize',9,'FontWeight','bold',...
+        'Position',[0.47 0.01 0.26 0.44],'BackgroundColor',[1 1 1]);
+    data.axEspY = axes('Parent',pE,'Position',[0.07 0.08 0.88 0.84]);
+    axis off;
+
+    % Diferencia / Residuo
+    pF = uipanel(fig,'Title',' x(t) - y(t)  —  Efecto Extraído','FontSize',9,'FontWeight','bold',...
+        'Position',[0.74 0.01 0.25 0.44],'BackgroundColor',[1 1 1]);
+    data.axDiff = axes('Parent',pF,'Position',[0.07 0.08 0.88 0.84]);
+    axis off;
+
+    guidata(fig, data);
+end
+
+% =========================================================================
+% CALLBACKS DE INTERFAZ
+% =========================================================================
+function actualizarLabel(slider, lbl, tipo)
+    v = get(slider,'Value');
+    switch tipo
+        case 'fc1',  set(lbl,'String',sprintf('fc1 = %.3f', v));
+        case 'fc2',  set(lbl,'String',sprintf('fc2 = %.3f', v));
+        case 'ord',  set(lbl,'String',sprintf('n = %d', round(v)));
+    end
+end
+
+function actualizarPanelFiltro(~, ~)
+    % (espacio para futura lógica reactiva)
+end
+
+function loadImage(btn, ~)
+    fig = ancestor(btn,'figure');
+    data = guidata(fig);
+
+    [file,path] = uigetfile({'*.jpg;*.png;*.bmp;*.tif','Imágenes'});
+    if isequal(file,0), return; end
+
+    img = imread(fullfile(path,file));
+    data.img = img;
+
+    % Convertir a escala de grises para el análisis espectral
+    if size(img,3) == 3
+        data.imgGray = double(rgb2gray(img));
+    else
+        data.imgGray = double(img);
+    end
+    data.result = [];
+
+    axes(data.axOrig); imshow(img); 
+    title('x(t): Imagen Original','FontSize',8);
+
+    % Mostrar espectro de entrada inmediatamente
+    mostrarEspectro(data.imgGray, data.axEspX, '|X(j\omega)| - Espectro Entrada', data.Fs_x);
+
+    axes(data.axResult); cla; axis off;
+    axes(data.axEspY);   cla; axis off;
+    axes(data.axH);      cla; axis off;
+    axes(data.axDiff);   cla; axis off;
+
+    guidata(fig,data);
+end
+
+% =========================================================================
+% PROCESAMIENTO EN DOMINIO DE FRECUENCIA (CORE)
+% =========================================================================
+function procesarEnFrecuencia(btn, ~)
+    fig = ancestor(btn,'figure');
+    data = guidata(fig);
+
+    if isempty(data.imgGray)
+        errordlg('Primero cargue una imagen.','Sin señal de entrada');
+        return;
+    end
+
+    set(btn,'Enable','off','String','Procesando FFT...');
+    drawnow;
+
+    fc1   = get(data.sliderFc1,'Value');
+    fc2   = get(data.sliderFc2,'Value');
+    n_ord = round(get(data.sliderOrden,'Value'));
+    modo  = get(data.popupFiltro,'Value');
+    forma = get(data.popupForma,'Value');
+
+    [rows, cols] = size(data.imgGray);
+
+    % ---- 1. FFT 2D de la señal de entrada ----
+    X = fft2(data.imgGray);
+    X_shift = fftshift(X);   % centrar componente DC
+
+    % ---- 2. Construir máscara H(jω) en 2D ----
+    % Crear grilla de frecuencias normalizadas (0..0.5 ciclos/px)
+    [u, v] = meshgrid( linspace(-0.5, 0.5, cols), linspace(-0.5, 0.5, rows) );
+    D = sqrt(u.^2 + v.^2);   % distancia radial al DC
+
+    H_mask = construirFiltro(D, fc1, fc2, n_ord, modo, forma);
+
+    % ---- 3. Aplicar filtro: Y(jω) = H(jω) · X(jω) ----
+    Y_shift = X_shift .* H_mask;
+    Y = ifftshift(Y_shift);
+
+    % ---- 4. IFFT 2D para obtener y(t) ----
+    y = real(ifft2(Y));
+
+    % Saturar a [0, 255]
+    y = y - min(y(:));
+    y = y / max(y(:)) * 255;
+    data.result = uint8(y);
+
+    % ---- 5. Diferencia (efecto extraído) ----
+    diff_img = double(data.imgGray) - y;
+    diff_img = diff_img - min(diff_img(:));
+    diff_img = diff_img / max(diff_img(:)) * 255;
+
+    % ---- 6. Visualizar resultados ----
+    % H(jω)
+    axes(data.axH);
+    imagesc(linspace(-0.5,0.5,cols), linspace(-0.5,0.5,rows), H_mask);
+    colormap(data.axH, jet); colorbar(data.axH);
+    xlabel('u (ciclos/px)','FontSize',7); ylabel('v (ciclos/px)','FontSize',7);
+    title('H(j\omega) - Respuesta en Frecuencia','FontSize',8);
+    xline(data.axH, fc1,'w--','LineWidth',1.2);
+    if ismember(modo,[3,4]), xline(data.axH, fc2,'w:','LineWidth',1.2); end
+    axis(data.axH,'xy');
+
+    % y(t)
+    axes(data.axResult); imshow(data.result);
+    title('y(t): Imagen Procesada','FontSize',8);
+
+    % |Y(jω)|
+    mostrarEspectro(y, data.axEspY, '|Y(j\omega)| - Espectro Salida', data.Fs_x);
+
+    % Diferencia
+    axes(data.axDiff); imagesc(diff_img); colormap(data.axDiff,gray); axis image off;
+    title('x(t) - y(t): Efecto extraído','FontSize',8);
+
+    set(btn,'Enable','on','String','2.  Procesar en Frecuencia');
+    guidata(fig,data);
+end
+
+% =========================================================================
+% ANÁLISIS FOURIER COMPLETO — ventana independiente
+% =========================================================================
+function verAnalisisFourier(btn, ~)
+    fig = ancestor(btn,'figure');
+    data = guidata(fig);
+
+    if isempty(data.imgGray)
+        errordlg('Cargue una imagen primero.','Error');
+        return;
+    end
+
+    [rows, cols] = size(data.imgGray);
+    X     = fft2(data.imgGray);
+    Xsh   = fftshift(X);
+    mag   = log(1 + abs(Xsh));
+    fase  = angle(Xsh);
+
+    % Frecuencias en ciclos/pixel
+    fu = linspace(-0.5, 0.5, cols);
+    fv = linspace(-0.5, 0.5, rows);
+
+    % Perfil 1D horizontal (fila central)
+    fila_c  = round(rows/2);
+    perfil  = abs(Xsh(fila_c,:));
+    perfil_db = 20*log10(perfil + 1e-6);
+
+    % Frecuencia máxima y mínima significativas (−40 dB)
+    umbral  = max(perfil_db) - 40;
+    idx_sig = find(perfil_db > umbral);
+    fmax    = fu(idx_sig(end));
+    fmin    = fu(idx_sig(1));
+
+    figF = figure('Name','Análisis de Fourier 2D','NumberTitle','off',...
+        'Position',[100 60 1100 700],'Color',[1 1 1]);
+
+    % -- Imagen original --
+    subplot(3,3,1);
+    imshow(uint8(data.imgGray)); title('x(t): Imagen original','FontWeight','bold');
+
+    % -- Magnitud espectral 2D --
+    subplot(3,3,2);
+    imagesc(fu, fv, mag); colormap(gca,hot); colorbar;
+    xlabel('u (ciclos/px)'); ylabel('v (ciclos/px)');
+    title('|X(j\omega)| — Magnitud (log)','FontWeight','bold');
+    axis xy;
+
+    % -- Fase espectral 2D --
+    subplot(3,3,3);
+    imagesc(fu, fv, fase); colormap(gca,hsv); colorbar;
+    xlabel('u (ciclos/px)'); ylabel('v (ciclos/px)');
+    title('\angle X(j\omega) — Fase','FontWeight','bold');
+    axis xy;
+
+    % -- Perfil 1D de magnitud --
+    subplot(3,3,4:5);
+    plot(fu, perfil_db,'b','LineWidth',1.5); grid on;
+    xlabel('Frecuencia u (ciclos/px)','FontSize',9);
+    ylabel('Magnitud (dB)','FontSize',9);
+    title('Perfil espectral horizontal 1D de x(t)','FontWeight','bold');
+    xline(fmax,'r--','LineWidth',1.2,'Label',sprintf('f_{max}=%.3f',fmax),'LabelVerticalAlignment','bottom');
+    xline(fmin,'g--','LineWidth',1.2,'Label',sprintf('f_{min}=%.3f',fmin),'LabelVerticalAlignment','bottom');
+    xline(0,'k:','LineWidth',1,'Label','DC');
+    legend({'|X(j\omega)| dB','f_{max} (-40dB)','f_{min} (-40dB)','DC'},'Location','northeast');
+
+    if ~isempty(data.result)
+        y     = double(data.result);
+        Ysh   = fftshift(fft2(y));
+        mag_y = log(1 + abs(Ysh));
+        perfil_y = abs(Ysh(fila_c,:));
+        perfil_y_db = 20*log10(perfil_y + 1e-6);
+
+        % -- Imagen resultado --
+        subplot(3,3,7);
+        imshow(data.result); title('y(t): Imagen de salida','FontWeight','bold');
+
+        % -- Magnitud espectral Y --
+        subplot(3,3,8);
+        imagesc(fu, fv, mag_y); colormap(gca,hot); colorbar;
+        xlabel('u (ciclos/px)'); ylabel('v (ciclos/px)');
+        title('|Y(j\omega)| — Magnitud (log)','FontWeight','bold');
+        axis xy;
+
+        % -- Comparación perfiles 1D --
+        subplot(3,3,6);
+        plot(fu, perfil_db,'b','LineWidth',1.5); hold on;
+        plot(fu, perfil_y_db,'r--','LineWidth',1.5);
+        grid on; legend({'|X(j\omega)|','|Y(j\omega)|'},'Location','best');
+        xlabel('Frecuencia (ciclos/px)'); ylabel('dB');
+        title('Comparación espectral 1D','FontWeight','bold');
+
+        % -- Diferencia en frecuencia --
+        diff_mag = log(1 + abs(Xsh - Ysh));
+        subplot(3,3,9);
+        imagesc(fu, fv, diff_mag); colormap(gca,jet); colorbar;
+        xlabel('u (ciclos/px)'); ylabel('v (ciclos/px)');
+        title('|X-Y|(j\omega) — Frecuencias modificadas','FontWeight','bold');
+        axis xy;
+    end
+
+    sgtitle('Análisis de Señales en el Dominio del Tiempo y Frecuencia',...
+        'FontSize',13,'FontWeight','bold','Color',[0.1 0.25 0.55]);
+end
+
+% =========================================================================
+% RESPUESTA AL IMPULSO h(t) Y RESPUESTA EN FRECUENCIA H(jω)
+% =========================================================================
+function verRespuestaSistema(btn, ~)
+    fig = ancestor(btn,'figure');
+    data = guidata(fig);
+
+    fc1   = get(data.sliderFc1,'Value');
+    fc2   = get(data.sliderFc2,'Value');
+    n_ord = round(get(data.sliderOrden,'Value'));
+    modo  = get(data.popupFiltro,'Value');
+    forma = get(data.popupForma,'Value');
+
+    tipos = {'Pasa-Bajos','Pasa-Altos','Pasa-Banda','Rechaza-Banda','Realce (Unsharp)'};
+
+    % Tamaño de referencia para el kernel
+    N = 128;
+    [u, v] = meshgrid(linspace(-0.5,0.5,N), linspace(-0.5,0.5,N));
+    D = sqrt(u.^2 + v.^2);
+
+    H2D = construirFiltro(D, fc1, fc2, n_ord, modo, forma);
+
+    % Respuesta al impulso 2D (IFFT del filtro)
+    h2D = real(ifft2(ifftshift(H2D)));
+    h2D_shift = fftshift(h2D);   % centrar en origen
+
+    % Perfiles 1D radiales
+    fu_1d = linspace(-0.5, 0.5, N);
+    H_1d  = H2D(round(N/2), :);    % fila central = perfil radial
+    h_1d  = h2D_shift(round(N/2),:);
+
+    figS = figure('Name','Respuesta al Impulso y Respuesta en Frecuencia',...
+        'NumberTitle','off','Position',[120 80 1050 650],'Color',[1 1 1]);
+
+    tipoStr = tipos{modo};
+    formas  = {'Ideal','Gaussiano','Butterworth'};
+    formaStr = formas{forma};
+
+    % -- H(jω) 2D --
+    subplot(2,3,1);
+    imagesc(fu_1d, fu_1d, H2D); colormap(gca,jet); colorbar;
+    xlabel('u (ciclos/px)'); ylabel('v (ciclos/px)');
+    title(sprintf('H(j\\omega) 2D\n%s — %s', tipoStr, formaStr),'FontWeight','bold');
+    axis xy;
+    if ismember(modo,[1,2,5])
+        annotation_fc(gca, fc1, 'fc1');
+    else
+        annotation_fc(gca, fc1, 'fc1'); annotation_fc(gca, fc2, 'fc2');
+    end
+
+    % -- H(jω) perfil 1D --
+    subplot(2,3,2);
+    plot(fu_1d, H_1d,'b','LineWidth',2); grid on;
+    xlabel('Frecuencia (ciclos/px)','FontSize',9);
+    ylabel('|H(j\omega)|','FontSize',9);
+    title(sprintf('H(j\\omega) — Perfil radial 1D\n%s — %s', tipoStr, formaStr),'FontWeight','bold');
+    xline(fc1,'r--','LineWidth',1.5,'Label',sprintf('fc1=%.3f',fc1));
+    if ismember(modo,[3,4])
+        xline(fc2,'g--','LineWidth',1.5,'Label',sprintf('fc2=%.3f',fc2));
+    end
+    yline(0.707,'k:','LineWidth',1,'Label','-3dB');
+    ylim([-0.1 1.2]);
+
+    % -- h(t) 2D --
+    subplot(2,3,4);
+    imagesc(h2D_shift); colormap(gca,gray); colorbar;
+    title('h(t) — Respuesta al Impulso 2D','FontWeight','bold');
+    xlabel('m (px)'); ylabel('n (px)');
+
+    % -- h(t) perfil 1D --
+    subplot(2,3,5);
+    t_ax = linspace(-N/2, N/2-1, N);
+    plot(t_ax, h_1d,'r','LineWidth',1.8); grid on;
+    xlabel('m (píxeles)','FontSize',9);
+    ylabel('h(t)','FontSize',9);
+    title('h(t) — Perfil horizontal (respuesta al impulso 1D)','FontWeight','bold');
+    xline(0,'k:','LineWidth',1,'Label','Origen');
+
+    % -- Magnitud H en dB --
+    subplot(2,3,3);
+    plot(fu_1d, 20*log10(H_1d + 1e-6),'b','LineWidth',2); grid on;
+    xlabel('Frecuencia (ciclos/px)');
+    ylabel('|H(j\omega)| (dB)');
+    title('H(j\omega) — Escala logarítmica (dB)','FontWeight','bold');
+    xline(fc1,'r--','LineWidth',1.5,'Label',sprintf('fc1=%.3f',fc1));
+    if ismember(modo,[3,4])
+        xline(fc2,'g--','LineWidth',1.5,'Label',sprintf('fc2=%.3f',fc2));
+    end
+    yline(-3,'k:','Label','-3 dB');
+
+    % -- Fase H --
+    subplot(2,3,6);
+    H_fase = angle(H2D(round(N/2),:));
+    plot(fu_1d, H_fase,'m','LineWidth',1.5); grid on;
+    xlabel('Frecuencia (ciclos/px)');
+    ylabel('\angle H(j\omega) (rad)');
+    title('\angle H(j\omega) — Respuesta en fase','FontWeight','bold');
+
+    sgtitle(sprintf('Sistema: %s   |   Forma: %s   |   fc1=%.3f   fc2=%.3f   n=%d',...
+        tipoStr, formaStr, fc1, fc2, n_ord),...
+        'FontSize',11,'FontWeight','bold','Color',[0.1 0.25 0.55]);
+end
+
+% =========================================================================
+% GUARDAR IMAGEN DE SALIDA
+% =========================================================================
+function guardarImagen(btn, ~)
+    fig = ancestor(btn,'figure');
+    data = guidata(fig);
+    if isempty(data.result)
+        errordlg('Primero procese una imagen.','Sin resultado');
+        return;
+    end
+    [arch,ruta] = uiputfile('*.png','Guardar imagen de salida');
+    if arch ~= 0
+        imwrite(data.result, fullfile(ruta,arch));
+        msgbox('Imagen guardada exitosamente.','Listo');
+    end
+end
+
+% =========================================================================
+% FUNCIONES MATEMÁTICAS DE SOPORTE
+% =========================================================================
+
+function H = construirFiltro(D, fc1, fc2, n_ord, modo, forma)
+% Construye la máscara H(jω) 2D según modo y forma.
+% D   : matriz de distancias radiales normalizadas [0..0.5]
+% fc1 : frecuencia de corte inferior (ciclos/px)
+% fc2 : frecuencia de corte superior (ciclos/px) — solo para banda
+% n_ord: orden Butterworth
+% modo : 1=LP, 2=HP, 3=BP, 4=BS, 5=Realce
+% forma: 1=Ideal, 2=Gaussiano, 3=Butterworth
+
+    % Filtro pasa-bajos base
+    switch forma
+        case 1  % Ideal
+            Hlp = double(D <= fc1);
+        case 2  % Gaussiano
+            Hlp = exp(-(D.^2) / (2*fc1^2));
+        case 3  % Butterworth
+            Hlp = 1 ./ (1 + (D/fc1).^(2*n_ord));
+    end
+
+    % Modificar según tipo de filtro deseado
+    switch modo
+        case 1  % Pasa-Bajos
+            H = Hlp;
+        case 2  % Pasa-Altos
+            H = 1 - Hlp;
+        case 3  % Pasa-Banda: LP(fc2) - LP(fc1)
+            switch forma
+                case 1, Hlp2 = double(D <= fc2);
+                case 2, Hlp2 = exp(-(D.^2)/(2*fc2^2));
+                case 3, Hlp2 = 1./(1+(D/fc2).^(2*n_ord));
+            end
+            H = Hlp2 - Hlp;
+            H(H < 0) = 0;
+        case 4  % Rechaza-Banda
+            switch forma
+                case 1, Hlp2 = double(D <= fc2);
+                case 2, Hlp2 = exp(-(D.^2)/(2*fc2^2));
+                case 3, Hlp2 = 1./(1+(D/fc2).^(2*n_ord));
+            end
+            H = 1 - (Hlp2 - Hlp);
+            H(H < 0) = 0;
+        case 5  % Realce (Unsharp Masking): original + k*bordes
+            Hhp = 1 - Hlp;
+            H   = 1 + 1.5 * Hhp;   % ganancia de realce fija
+    end
+end
+
+function mostrarEspectro(img_gray, ax, titulo, ~)
+% Muestra el espectro de magnitud 2D centrado con ejes en ciclos/px.
+    [rows,cols] = size(img_gray);
+    X   = fftshift(fft2(img_gray));
+    mag = log(1 + abs(X));
+
+    fu = linspace(-0.5,0.5,cols);
+    fv = linspace(-0.5,0.5,rows);
+
+    axes(ax);
+    imagesc(fu, fv, mag);
+    colormap(ax, hot);
+    axis(ax,'xy');
+    xlabel(ax,'u (ciclos/px)','FontSize',7);
+    ylabel(ax,'v (ciclos/px)','FontSize',7);
+    title(ax, titulo,'FontSize',8);
+    colorbar(ax);
+end
+
+function annotation_fc(ax, fc, lbl)
+% Dibuja líneas de frecuencia de corte en un eje imagesc.
+    hold(ax,'on');
+    xline(ax, fc,'w--','LineWidth',1.2,'Label',sprintf('%s=%.3f',lbl,fc),'LabelColor','w');
+    xline(ax,-fc,'w--','LineWidth',1.2);
+    yline(ax, fc,'w--','LineWidth',1.2);
+    yline(ax,-fc,'w--','LineWidth',1.2);
+    hold(ax,'off');
+end
